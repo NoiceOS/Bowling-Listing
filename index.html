@@ -109,6 +109,21 @@
   .import-btn.secondary:active{transform:translateY(1px);}
   #fileInput{display:none;}
 
+  .repo-select{
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    color:var(--cream);
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:12px 14px;
+    cursor:pointer;
+    min-width:200px;
+    max-width:280px;
+  }
+  .repo-select:disabled{opacity:.55;cursor:default;}
+  .repo-select:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
+
   .file-status{
     font-family:'Space Mono',monospace;
     font-size:12px;
@@ -237,7 +252,7 @@
     font-size:14px;
     border:1px solid var(--border);
   }
-  .result-text{min-width:0;}
+  .result-text{min-width:0;display:flex;flex-direction:column;gap:2px;}
   .result-name{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .result-club{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
@@ -382,13 +397,6 @@
     color:var(--amber);
   }
 
-  footer{
-    text-align:center;
-    color:var(--muted);
-    font-size:12px;
-    padding:0 24px 40px;
-    font-family:'Space Mono',monospace;
-  }
 </style>
 </head>
 <body>
@@ -404,12 +412,14 @@
       <h1>Listing Joueurs</h1>
     </div>
     <div class="import-actions">
-      <button class="import-btn" id="importBtn" type="button">Importer un fichier Excel (.xlsx)</button>
-      <button class="import-btn secondary" id="repoBtn" type="button">Dernier listing chargé — <span id="repoLabel">…</span></button>
+      <button class="import-btn" id="importBtn" type="button">Importer un listing (xlsx)</button>
+      <select class="repo-select" id="listingSelect" disabled>
+        <option value="">Recherche des listings…</option>
+      </select>
     </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   </div>
-  <p class="file-status" id="fileStatus">Aucun fichier importé pour le moment.</p>
+  <p class="file-status" id="fileStatus">Recherche du dernier listing dans le dépôt…</p>
 </header>
 
 <main>
@@ -449,7 +459,6 @@
 
 </main>
 
-<footer>Données importées localement dans votre navigateur — rien n'est envoyé sur un serveur.</footer>
 
 <script>
 (function(){
@@ -460,16 +469,22 @@
   let selectedIndex = null;
   let nameColKey = null, clubColKey = null, featureColKey = null;
 
-  const EXCLUDED_HEADERS = ['(colonne E)', 'P', 'M', 'Nat'];
+  const EXCLUDED_HEADERS = ['(colonne E)', 'P', 'M', 'Nat', 'T/L'];
   const SCORE_GROUPS = ['Scores C1 + C2', 'Scores Ligues', 'Scores Cumulés'];
+  const HEADER_RENAMES = { 'LR': 'Région', 'dep': 'Département', 'Hand': 'Handicap', 'S': 'Genre', 'Cat': 'Catégorie' };
 
-  // Fichier du listing déposé dans le dépôt GitHub, à côté de ce index.html.
-  // À adapter avec le nom exact du fichier tel qu'il apparaît dans votre dépôt.
-  const REPO_LISTING_PATH = 'listing-2026-07-13_1636470731.xlsx';
+  // Dépôt GitHub où sont déposés les fichiers "listing-aaaa-mm-jj*.xlsx",
+  // à côté de ce index.html. À adapter avec votre compte / dépôt / dossier.
+  const GITHUB_REPO = {
+    owner: 'VOTRE-COMPTE-GITHUB',   // <-- à remplacer
+    name: 'VOTRE-DEPOT',            // <-- à remplacer
+    path: ''                        // dossier contenant les listings (laisser vide si à la racine)
+  };
+
+  let availableListings = [];
 
   const importBtn = document.getElementById('importBtn');
-  const repoBtn = document.getElementById('repoBtn');
-  const repoLabelEl = document.getElementById('repoLabel');
+  const listingSelect = document.getElementById('listingSelect');
   const fileInput = document.getElementById('fileInput');
   const fileStatus = document.getElementById('fileStatus');
   const nameSearch = document.getElementById('nameSearch');
@@ -481,20 +496,14 @@
 
   const MOIS_FR = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
 
-  function moisAnneeFromPath(path){
-    const m = path.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (m){
-      const year = m[1];
-      const month = parseInt(m[2], 10);
-      if (month >= 1 && month <= 12){
-        const mois = MOIS_FR[month - 1];
-        return mois.charAt(0).toUpperCase() + mois.slice(1) + ' ' + year;
-      }
+  function moisAnneeFromDateParts(year, month){
+    const m = parseInt(month, 10);
+    if (m >= 1 && m <= 12){
+      const mois = MOIS_FR[m - 1];
+      return mois.charAt(0).toUpperCase() + mois.slice(1) + ' ' + year;
     }
-    return path;
+    return year;
   }
-
-  repoLabelEl.textContent = moisAnneeFromPath(REPO_LISTING_PATH);
 
   importBtn.addEventListener('click', () => fileInput.click());
 
@@ -515,24 +524,81 @@
     reader.readAsArrayBuffer(file);
   });
 
-  repoBtn.addEventListener('click', () => {
-    fileStatus.textContent = 'Chargement du dernier listing (' + repoLabelEl.textContent + ')…';
+  // Recherche tous les fichiers "listing-aaaa-mm-jj*.xlsx" présents dans le
+  // dépôt via l'API GitHub, peuple le menu déroulant, et charge automatiquement
+  // le plus récent au chargement de la page.
+  function discoverRepoListings(){
+    const apiUrl = 'https://api.github.com/repos/' + GITHUB_REPO.owner + '/' + GITHUB_REPO.name + '/contents/' + GITHUB_REPO.path;
+
+    fetch(apiUrl)
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(files => {
+        const items = files
+          .filter(f => f.type === 'file' && /^listing-(\d{4})-(\d{2})-(\d{2}).*\.xlsx$/i.test(f.name))
+          .map(f => {
+            const m = f.name.match(/^listing-(\d{4})-(\d{2})-(\d{2})/i);
+            return {
+              name: f.name,
+              url: f.download_url,
+              dateKey: m[1] + m[2] + m[3],
+              label: moisAnneeFromDateParts(m[1], m[2])
+            };
+          })
+          .sort((a, b) => b.dateKey.localeCompare(a.dateKey));
+
+        if (!items.length) throw new Error('Aucun fichier listing-aaaa-mm-jj*.xlsx trouvé dans le dépôt.');
+
+        availableListings = items;
+        populateListingSelect(items);
+        loadListingItem(items[0]);
+      })
+      .catch(err => {
+        console.error(err);
+        listingSelect.innerHTML = '<option value="">Dépôt indisponible</option>';
+        listingSelect.disabled = true;
+        fileStatus.textContent = 'Impossible de récupérer les listings du dépôt GitHub. Vérifiez GITHUB_REPO en haut du script, ou importez un fichier manuellement.';
+        fileStatus.className = 'file-status err';
+      });
+  }
+
+  function populateListingSelect(items){
+    listingSelect.innerHTML = '';
+    items.forEach((item, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = item.label + ' (' + item.name + ')';
+      listingSelect.appendChild(opt);
+    });
+    listingSelect.disabled = false;
+    listingSelect.value = '0';
+  }
+
+  listingSelect.addEventListener('change', () => {
+    const item = availableListings[parseInt(listingSelect.value, 10)];
+    if (item) loadListingItem(item);
+  });
+
+  function loadListingItem(item){
+    fileStatus.textContent = 'Chargement du listing ' + item.label + '…';
     fileStatus.className = 'file-status';
 
-    fetch(REPO_LISTING_PATH)
+    fetch(item.url)
       .then(res => {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         return res.arrayBuffer();
       })
-      .then(buf => processWorkbook(buf, REPO_LISTING_PATH, true))
+      .then(buf => processWorkbook(buf, item.name, true, item.label))
       .catch(err => {
         console.error(err);
-        fileStatus.textContent = 'Impossible de charger « ' + REPO_LISTING_PATH + ' » depuis le dépôt. Vérifiez qu\'il est bien présent à côté de index.html.';
+        fileStatus.textContent = 'Impossible de charger « ' + item.name + ' » depuis le dépôt.';
         fileStatus.className = 'file-status err';
       });
-  });
+  }
 
-  function processWorkbook(arrayBuffer, sourceName, isRepo){
+  function processWorkbook(arrayBuffer, sourceName, isRepo, repoLabel){
     try {
       const data = new Uint8Array(arrayBuffer);
       const wb = XLSX.read(data, { type: 'array' });
@@ -563,12 +629,12 @@
         return;
       }
 
-      // Le vrai numéro de licence est la concaténation de "N° de Licence"
-      // et de la colonne sans en-tête qui la suit dans le fichier source.
+      // Le vrai numéro de licence est la concaténation, séparée par un espace,
+      // de "N° de Licence" et de la colonne sans en-tête qui la suit.
       rows.forEach(r => {
         const prefix = String(r['N° de Licence'] || '').trim();
         const suffix = String(r['(colonne E)'] || '').trim();
-        r['N° de Licence'] = prefix + suffix;
+        r['N° de Licence'] = (prefix + ' ' + suffix).trim();
         delete r['(colonne E)'];
       });
 
@@ -583,7 +649,7 @@
       applyFilters();
 
       fileStatus.textContent = isRepo
-        ? 'Dernier listing chargé : ' + repoLabelEl.textContent + ' — ' + rows.length + ' joueur(s).'
+        ? 'Listing chargé : ' + repoLabel + ' (' + sourceName + ') — ' + rows.length + ' joueur(s).'
         : '« ' + sourceName + ' » importé — ' + rows.length + ' joueur(s), feuille « ' + sheetName + ' ».';
       fileStatus.className = 'file-status ok';
     } catch (err) {
@@ -592,6 +658,8 @@
       fileStatus.className = 'file-status err';
     }
   }
+
+  discoverRepoListings();
 
   function normalize(str){
     return String(str || '')
@@ -627,7 +695,7 @@
           groupPos = 1;
         } else {
           groupBase = null; groupPos = 0;
-          label = text;
+          label = HEADER_RENAMES[text] || text;
         }
       } else if (groupBase && groupPos < subLabels.length){
         label = groupBase + ' - ' + subLabels[groupPos];
