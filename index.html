@@ -397,6 +397,116 @@
     color:var(--amber);
   }
 
+  /* ---------- Comparaison entre joueurs ---------- */
+  .link-btn{
+    background:none;
+    border:none;
+    color:var(--amber);
+    font-family:'Space Mono',monospace;
+    font-size:12px;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    cursor:pointer;
+    padding:6px 0;
+  }
+  .link-btn:hover{text-decoration:underline;}
+  .link-btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px;}
+
+  .compare-toggle-row{margin-top:18px;padding-top:16px;border-top:1px solid var(--border);}
+
+  .compare-panel{margin-top:18px;padding-top:16px;border-top:1px solid var(--border);}
+  .compare-panel-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-family:'Space Mono',monospace;
+    font-size:11px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .compare-search-input{
+    width:100%;
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    color:var(--cream);
+    padding:10px 12px;
+    border-radius:8px;
+    font-size:14px;
+    font-family:'Inter',sans-serif;
+  }
+  .compare-search-input:focus-visible{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber);}
+  .compare-suggestions{
+    margin-top:8px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    max-height:220px;
+    overflow-y:auto;
+  }
+  .suggestion-btn{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:1px;
+    background:var(--panel-alt);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:8px 10px;
+    cursor:pointer;
+    text-align:left;
+    color:var(--cream);
+    font-family:'Inter',sans-serif;
+    width:100%;
+  }
+  .suggestion-btn:hover, .suggestion-btn:focus-visible{background:var(--panel-raised);outline:none;}
+  .suggestion-name{font-size:13px;font-weight:600;}
+  .suggestion-club{font-size:11px;color:var(--muted);}
+  .suggestion-empty{font-size:12px;color:var(--muted);padding:6px 2px;}
+
+  .compare-players{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:16px;
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .compare-player{display:flex;align-items:center;gap:10px;min-width:0;}
+  .compare-player .detail-name{font-size:15px;}
+  .compare-vs{
+    font-family:'Oswald',sans-serif;
+    font-weight:600;
+    color:var(--muted);
+    font-size:12px;
+    letter-spacing:.12em;
+  }
+
+  .compare-table-scroll{overflow-x:auto;}
+  .compare-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .compare-table td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+  .compare-table td.ck{
+    font-family:'Space Mono',monospace;
+    font-size:10.5px;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--muted);
+    white-space:nowrap;
+    width:1%;
+  }
+  .compare-table td.cv{color:var(--cream);}
+  .compare-table tr.compare-highlight td.cv{
+    color:var(--amber);
+    font-weight:700;
+    font-family:'Space Mono',monospace;
+  }
+  .compare-actions{display:flex;gap:18px;margin-top:14px;flex-wrap:wrap;}
+
+  @media (max-width:480px){
+    .compare-players{flex-direction:column;gap:8px;}
+  }
+
 </style>
 </head>
 <body>
@@ -467,17 +577,20 @@
   let displayFields = [];
   let filtered = [];
   let selectedIndex = null;
+  let compareMode = false;
+  let compareIndex = null;
   let nameColKey = null, clubColKey = null, featureColKey = null;
 
   const EXCLUDED_HEADERS = ['(colonne E)', 'P', 'M', 'Nat', 'T/L'];
+  const COMPARE_EXCLUDED_LABELS = ['N° de Licence', 'num', 'Genre'];
   const SCORE_GROUPS = ['Scores C1 + C2', 'Scores Ligues', 'Scores Cumulés'];
   const HEADER_RENAMES = { 'LR': 'Région', 'dep': 'Département', 'Hand': 'Handicap', 'S': 'Genre', 'Cat': 'Catégorie' };
 
   // Dépôt GitHub où sont déposés les fichiers "listing-aaaa-mm-jj*.xlsx",
   // à côté de ce index.html. À adapter avec votre compte / dépôt / dossier.
   const GITHUB_REPO = {
-    owner: 'NoiceOS',   
-    name: 'Bowling-Listing',            
+    owner: 'VOTRE-COMPTE-GITHUB',   // <-- à remplacer
+    name: 'VOTRE-DEPOT',            // <-- à remplacer
     path: ''                        // dossier contenant les listings (laisser vide si à la racine)
   };
 
@@ -832,6 +945,8 @@
 
       btn.addEventListener('click', () => {
         selectedIndex = item.origIndex;
+        compareMode = false;
+        compareIndex = null;
         renderResults();
         renderDetail();
       });
@@ -847,6 +962,24 @@
     }
   }
 
+  function groupValues(row, field){
+    const q = row[field.quillesKey], p = row[field.partiesKey], m = row[field.moyenneKey];
+    const hasVal = v => v !== undefined && v !== null && String(v).trim() !== '';
+    return {
+      q: hasVal(q) ? q : null,
+      p: hasVal(p) ? p : null,
+      m: hasVal(m) ? m : null,
+      has: hasVal(q) || hasVal(p) || hasVal(m)
+    };
+  }
+
+  function playerHeader(row, avatarClass){
+    const name = nameColKey ? String(row[nameColKey] || '(sans nom)') : '(sans nom)';
+    const club = clubColKey ? String(row[clubColKey] || '—') : '—';
+    const initial = name.trim().charAt(0).toUpperCase() || '?';
+    return { name, club, initial };
+  }
+
   function renderDetail(){
     if (selectedIndex === null || !rows[selectedIndex]){
       detailPanel.innerHTML =
@@ -858,9 +991,15 @@
     }
 
     const row = rows[selectedIndex];
-    const name = nameColKey ? String(row[nameColKey] || '(sans nom)') : '(sans nom)';
-    const club = clubColKey ? String(row[clubColKey] || '—') : '—';
-    const initial = name.trim().charAt(0).toUpperCase() || '?';
+
+    // ----- Mode comparaison : deux joueurs choisis -----
+    if (compareMode && compareIndex !== null && rows[compareIndex]){
+      renderComparisonView(row, rows[compareIndex]);
+      return;
+    }
+
+    // ----- Fiche joueur normale -----
+    const { name, club, initial } = playerHeader(row);
 
     let html = '<div class="detail-header">' +
       '<span class="avatar-lg">' + initial + '</span>' +
@@ -882,23 +1021,149 @@
       }
 
       // field.type === 'group' : Quilles / Parties / Moyenne réunis dans la même case
-      const q = row[field.quillesKey], p = row[field.partiesKey], m = row[field.moyenneKey];
-      const hasVal = v => v !== undefined && v !== null && String(v).trim() !== '';
-
-      if (!hasVal(q) && !hasVal(p) && !hasVal(m)){
+      const g = groupValues(row, field);
+      if (!g.has){
         html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">—</div></div>';
       } else {
         html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div>' +
           '<div class="mini-stats">' +
-            '<div class="mini-stat"><span class="mk">Quilles</span><span class="mv">' + escapeHtml(hasVal(q) ? String(q) : '—') + '</span></div>' +
-            '<div class="mini-stat"><span class="mk">Parties</span><span class="mv">' + escapeHtml(hasVal(p) ? String(p) : '—') + '</span></div>' +
-            '<div class="mini-stat"><span class="mk">Moyenne</span><span class="mv">' + escapeHtml(hasVal(m) ? String(m) : '—') + '</span></div>' +
+            '<div class="mini-stat"><span class="mk">Quilles</span><span class="mv">' + escapeHtml(g.q !== null ? String(g.q) : '—') + '</span></div>' +
+            '<div class="mini-stat"><span class="mk">Parties</span><span class="mv">' + escapeHtml(g.p !== null ? String(g.p) : '—') + '</span></div>' +
+            '<div class="mini-stat"><span class="mk">Moyenne</span><span class="mv">' + escapeHtml(g.m !== null ? String(g.m) : '—') + '</span></div>' +
           '</div></div>';
       }
     });
     html += '</div>';
 
+    // ----- Zone comparaison (bouton, ou recherche du second joueur) -----
+    if (!compareMode){
+      html += '<div class="compare-toggle-row"><button class="link-btn" id="compareToggleBtn" type="button">⇄ Comparer à un autre joueur</button></div>';
+    } else {
+      html += '<div class="compare-panel">' +
+        '<div class="compare-panel-head"><span>Choisir le second joueur</span><button class="link-btn" id="compareCancelBtn" type="button">Annuler</button></div>' +
+        '<input type="text" id="compareSearchInput" class="compare-search-input" placeholder="Nom du joueur…" autocomplete="off">' +
+        '<div class="compare-suggestions" id="compareSuggestions"></div>' +
+      '</div>';
+    }
+
     detailPanel.innerHTML = html;
+
+    if (!compareMode){
+      const toggleBtn = document.getElementById('compareToggleBtn');
+      if (toggleBtn) toggleBtn.addEventListener('click', () => {
+        compareMode = true;
+        compareIndex = null;
+        renderDetail();
+      });
+    } else {
+      const cancelBtn = document.getElementById('compareCancelBtn');
+      if (cancelBtn) cancelBtn.addEventListener('click', () => {
+        compareMode = false;
+        compareIndex = null;
+        renderDetail();
+      });
+
+      const searchInput = document.getElementById('compareSearchInput');
+      const suggestionsEl = document.getElementById('compareSuggestions');
+      if (searchInput && suggestionsEl){
+        searchInput.focus();
+        const renderSuggestions = () => {
+          const q = normalize(searchInput.value);
+          suggestionsEl.innerHTML = '';
+          if (!q){ return; }
+
+          const matches = rows
+            .map((r, idx) => ({ r, idx }))
+            .filter(item => item.idx !== selectedIndex && nameColKey && normalize(item.r[nameColKey]).includes(q))
+            .slice(0, 8);
+
+          if (!matches.length){
+            suggestionsEl.innerHTML = '<div class="suggestion-empty">Aucun joueur correspondant.</div>';
+            return;
+          }
+
+          matches.forEach(item => {
+            const n = nameColKey ? String(item.r[nameColKey] || '') : '';
+            const c = clubColKey ? String(item.r[clubColKey] || '') : '';
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'suggestion-btn';
+            b.innerHTML = '<span class="suggestion-name">' + escapeHtml(n || '(sans nom)') + '</span><span class="suggestion-club">' + escapeHtml(c || '—') + '</span>';
+            b.addEventListener('click', () => {
+              compareIndex = item.idx;
+              renderDetail();
+            });
+            suggestionsEl.appendChild(b);
+          });
+        };
+        searchInput.addEventListener('input', renderSuggestions);
+      }
+    }
+  }
+
+  function renderComparisonView(rowA, rowB){
+    const a = playerHeader(rowA);
+    const b = playerHeader(rowB);
+
+    const compareFields = displayFields.filter(field => {
+      if (field.type === 'single'){
+        if (field.key === nameColKey || field.key === clubColKey) return false;
+        if (COMPARE_EXCLUDED_LABELS.includes(field.label)) return false;
+      }
+      return true;
+    });
+
+    let html = '<div class="compare-players">' +
+      '<div class="compare-player"><span class="avatar-lg">' + a.initial + '</span><div><div class="detail-name">' + escapeHtml(a.name) + '</div><div class="detail-club">' + escapeHtml(a.club) + '</div></div></div>' +
+      '<span class="compare-vs">VS</span>' +
+      '<div class="compare-player"><span class="avatar-lg">' + b.initial + '</span><div><div class="detail-name">' + escapeHtml(b.name) + '</div><div class="detail-club">' + escapeHtml(b.club) + '</div></div></div>' +
+    '</div>';
+
+    html += '<div class="compare-table-scroll"><table class="compare-table"><tbody>';
+    compareFields.forEach(field => {
+      const isFeature = field.type === 'single' && field.key === featureColKey;
+
+      if (field.type === 'single'){
+        const va = rowA[field.key], vb = rowB[field.key];
+        const disp = v => (v === '' || v === undefined || v === null) ? '—' : String(v);
+        html += '<tr' + (isFeature ? ' class="compare-highlight"' : '') + '>' +
+          '<td class="ck">' + escapeHtml(field.label) + '</td>' +
+          '<td class="cv">' + escapeHtml(disp(va)) + '</td>' +
+          '<td class="cv">' + escapeHtml(disp(vb)) + '</td>' +
+        '</tr>';
+        return;
+      }
+
+      const gA = groupValues(rowA, field), gB = groupValues(rowB, field);
+      const fmt = g => g.has
+        ? 'Quilles ' + (g.q !== null ? g.q : '—') + ' · Parties ' + (g.p !== null ? g.p : '—') + ' · Moyenne ' + (g.m !== null ? g.m : '—')
+        : '—';
+      html += '<tr>' +
+        '<td class="ck">' + escapeHtml(field.label) + '</td>' +
+        '<td class="cv">' + escapeHtml(fmt(gA)) + '</td>' +
+        '<td class="cv">' + escapeHtml(fmt(gB)) + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    html += '<div class="compare-actions">' +
+      '<button class="link-btn" id="compareChangeBtn" type="button">Changer de joueur</button>' +
+      '<button class="link-btn" id="compareExitBtn" type="button">Quitter la comparaison</button>' +
+    '</div>';
+
+    detailPanel.innerHTML = html;
+
+    const changeBtn = document.getElementById('compareChangeBtn');
+    if (changeBtn) changeBtn.addEventListener('click', () => {
+      compareIndex = null;
+      renderDetail();
+    });
+    const exitBtn = document.getElementById('compareExitBtn');
+    if (exitBtn) exitBtn.addEventListener('click', () => {
+      compareMode = false;
+      compareIndex = null;
+      renderDetail();
+    });
   }
 
   function escapeHtml(str){
