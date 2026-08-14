@@ -112,37 +112,6 @@
     padding:28px 24px 60px;
   }
 
-  .config{
-    display:flex;
-    gap:14px;
-    flex-wrap:wrap;
-    margin-bottom:22px;
-    padding:14px 16px;
-    background:var(--panel);
-    border:1px solid var(--border);
-    border-radius:var(--radius);
-  }
-  .config label{
-    display:flex;
-    flex-direction:column;
-    gap:6px;
-    font-size:12px;
-    color:var(--muted);
-    font-family:'Space Mono',monospace;
-    flex:1;
-    min-width:160px;
-  }
-  .config select{
-    background:var(--panel-alt);
-    border:1px solid var(--border);
-    color:var(--cream);
-    padding:9px 10px;
-    border-radius:6px;
-    font-family:'Inter',sans-serif;
-    font-size:13px;
-  }
-  .config select:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
-
   .search-row{
     display:flex;
     gap:12px;
@@ -358,6 +327,33 @@
     font-weight:500;
     word-break:break-word;
   }
+  .stat-row.wide{
+    grid-column:1 / -1;
+  }
+  .mini-stats{
+    display:flex;
+    gap:16px;
+    margin-top:2px;
+    flex-wrap:wrap;
+  }
+  .mini-stat{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .mini-stat .mk{
+    font-family:'Space Mono',monospace;
+    font-size:10px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--muted);
+  }
+  .mini-stat .mv{
+    font-family:'Space Mono',monospace;
+    font-weight:700;
+    font-size:15px;
+    color:var(--amber);
+  }
 
   footer{
     text-align:center;
@@ -387,18 +383,6 @@
 </header>
 
 <main>
-
-  <div class="config" id="configPanel" style="display:none;">
-    <label>Colonne « Nom »
-      <select id="nameCol"></select>
-    </label>
-    <label>Colonne « Club »
-      <select id="clubCol"></select>
-    </label>
-    <label>Colonne stat mise en avant (optionnel)
-      <select id="featureCol"></select>
-    </label>
-  </div>
 
   <div class="search-row">
     <div class="search-field">
@@ -441,17 +425,17 @@
 (function(){
   let rows = [];
   let headers = [];
+  let displayFields = [];
   let filtered = [];
   let selectedIndex = null;
   let nameColKey = null, clubColKey = null, featureColKey = null;
 
+  const EXCLUDED_HEADERS = ['(colonne E)', 'P', 'M', 'Nat'];
+  const SCORE_GROUPS = ['Scores C1 + C2', 'Scores Ligues', 'Scores Cumulés'];
+
   const importBtn = document.getElementById('importBtn');
   const fileInput = document.getElementById('fileInput');
   const fileStatus = document.getElementById('fileStatus');
-  const configPanel = document.getElementById('configPanel');
-  const nameColSel = document.getElementById('nameCol');
-  const clubColSel = document.getElementById('clubCol');
-  const featureColSel = document.getElementById('featureCol');
   const nameSearch = document.getElementById('nameSearch');
   const clubSearch = document.getElementById('clubSearch');
   const clubListEl = document.getElementById('clubList');
@@ -474,17 +458,42 @@
         const wb = XLSX.read(data, { type: 'array' });
         const sheetName = wb.SheetNames[0];
         const sheet = wb.Sheets[sheetName];
-        const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-        if (!json.length) {
+        // Lecture brute (tableau de tableaux) pour gérer nous-mêmes les
+        // en-têtes groupées fusionnées ("Scores C1 + C2" sur 3 colonnes, etc.)
+        const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (!raw.length) {
           fileStatus.textContent = 'Le fichier ne contient aucune ligne exploitable.';
           fileStatus.className = 'file-status err';
           return;
         }
 
-        rows = json;
-        headers = Object.keys(json[0]);
-        populateConfig();
+        headers = buildHeaders(raw[0]);
+        rows = raw.slice(1)
+          .filter(r => r.some(v => String(v).trim() !== ''))
+          .map(r => {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = r[i] === undefined ? '' : r[i]; });
+            return obj;
+          });
+
+        if (!rows.length) {
+          fileStatus.textContent = 'Aucune ligne de données trouvée sous les en-têtes.';
+          fileStatus.className = 'file-status err';
+          return;
+        }
+
+        // Le vrai numéro de licence est la concaténation de "N° de Licence"
+        // et de la colonne sans en-tête qui la suit dans le fichier source.
+        rows.forEach(r => {
+          const prefix = String(r['N° de Licence'] || '').trim();
+          const suffix = String(r['(colonne E)'] || '').trim();
+          r['N° de Licence'] = prefix + suffix;
+          delete r['(colonne E)'];
+        });
+
+        displayFields = buildDisplayFields(headers);
+
         autoDetectColumns();
         nameSearch.disabled = false;
         clubSearch.disabled = false;
@@ -493,9 +502,8 @@
         populateClubList();
         applyFilters();
 
-        fileStatus.textContent = '« ' + file.name + ' » importé — ' + rows.length + ' ligne(s), feuille « ' + sheetName + ' ».';
+        fileStatus.textContent = '« ' + file.name + ' » importé — ' + rows.length + ' joueur(s), feuille « ' + sheetName + ' ».';
         fileStatus.className = 'file-status ok';
-        configPanel.style.display = 'flex';
       } catch (err) {
         console.error(err);
         fileStatus.textContent = 'Impossible de lire ce fichier. Vérifiez qu\'il s\'agit bien d\'un .xlsx / .csv valide.';
@@ -516,38 +524,97 @@
       .trim();
   }
 
-  function populateConfig(){
-    [nameColSel, clubColSel, featureColSel].forEach(sel => sel.innerHTML = '');
-    const blank = document.createElement('option');
-    blank.value = ''; blank.textContent = '—';
-    featureColSel.appendChild(blank);
+  function excelColLetter(idx){
+    let s = '', n = idx;
+    while (n >= 0){ s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; }
+    return s;
+  }
 
-    headers.forEach(h => {
-      const o1 = document.createElement('option'); o1.value = h; o1.textContent = h;
-      nameColSel.appendChild(o1);
-      const o2 = document.createElement('option'); o2.value = h; o2.textContent = h;
-      clubColSel.appendChild(o2);
-      const o3 = document.createElement('option'); o3.value = h; o3.textContent = h;
-      featureColSel.appendChild(o3);
+  // Construit des en-têtes uniques et lisibles à partir de la ligne brute,
+  // en reconstituant les groupes fusionnés du type "Scores C1 + C2" qui
+  // s'étendent sur 3 colonnes (Quilles / Parties / Moyenne) mais dont seule
+  // la première cellule porte un texte dans le fichier source.
+  function buildHeaders(headerRow){
+    const subLabels = ['Quilles', 'Parties', 'Moyenne'];
+    const out = [];
+    const seen = {};
+    let groupBase = null, groupPos = 0;
+
+    headerRow.forEach((cell, i) => {
+      const text = String(cell || '').trim();
+      let label;
+
+      if (text !== ''){
+        if (/^scores/i.test(text)){
+          groupBase = text; groupPos = 0;
+          label = text + ' - ' + subLabels[0];
+          groupPos = 1;
+        } else {
+          groupBase = null; groupPos = 0;
+          label = text;
+        }
+      } else if (groupBase && groupPos < subLabels.length){
+        label = groupBase + ' - ' + subLabels[groupPos];
+        groupPos++;
+      } else {
+        groupBase = null;
+        label = '(colonne ' + excelColLetter(i) + ')';
+      }
+
+      if (seen[label] !== undefined){
+        seen[label]++;
+        label = label + ' (' + seen[label] + ')';
+      } else {
+        seen[label] = 0;
+      }
+      out.push(label);
     });
 
-    nameColSel.onchange = () => { nameColKey = nameColSel.value; applyFilters(); renderDetail(); };
-    clubColSel.onchange = () => { clubColKey = clubColSel.value; populateClubList(); applyFilters(); renderDetail(); };
-    featureColSel.onchange = () => { featureColKey = featureColSel.value; renderDetail(); };
+    return out;
+  }
+
+  // Construit la liste ordonnée des champs à afficher dans la fiche joueur :
+  // colonnes normales telles quelles, colonnes exclues retirées, et les 3
+  // groupes "Scores ..." regroupés en une seule entrée (Quilles/Parties/Moyenne).
+  function buildDisplayFields(headerList){
+    const fields = [];
+    const groupEmitted = {};
+
+    headerList.forEach(h => {
+      if (EXCLUDED_HEADERS.includes(h)) return;
+
+      const group = SCORE_GROUPS.find(g =>
+        h === g + ' - Quilles' || h === g + ' - Parties' || h === g + ' - Moyenne'
+      );
+
+      if (group){
+        if (!groupEmitted[group]){
+          fields.push({
+            type: 'group',
+            label: group,
+            quillesKey: group + ' - Quilles',
+            partiesKey: group + ' - Parties',
+            moyenneKey: group + ' - Moyenne'
+          });
+          groupEmitted[group] = true;
+        }
+        return;
+      }
+
+      fields.push({ type: 'single', label: h, key: h });
+    });
+
+    return fields;
   }
 
   function autoDetectColumns(){
-    const nameCandidates = ['nom', 'joueur', 'nom prenom', 'nom complet', 'licencie', 'athlete'];
-    const clubCandidates = ['club', 'club nom', 'nom club', 'association'];
-    const featureCandidates = ['moyenne', 'moy', 'moyenne generale'];
+    const nameCandidates = ['nom et prenom', 'nom prenom', 'nom', 'joueur', 'nom complet', 'licencie'];
+    const clubCandidates = ['club'];
+    const featureCandidates = ['moy', 'moyenne'];
 
     nameColKey = findBestHeader(nameCandidates) || headers[0];
     clubColKey = findBestHeader(clubCandidates) || headers[Math.min(1, headers.length - 1)];
     featureColKey = findBestHeader(featureCandidates) || '';
-
-    nameColSel.value = nameColKey;
-    clubColSel.value = clubColKey;
-    featureColSel.value = featureColKey;
   }
 
   function findBestHeader(candidates){
@@ -662,9 +729,28 @@
     }
 
     html += '<div class="stat-grid">';
-    headers.forEach(h => {
-      if (h === nameColKey || h === clubColKey || h === featureColKey) return;
-      html += '<div class="stat-row"><div class="k">' + escapeHtml(h) + '</div><div class="v">' + escapeHtml(String(row[h] === '' ? '—' : row[h])) + '</div></div>';
+    displayFields.forEach(field => {
+      if (field.type === 'single'){
+        if (field.key === nameColKey || field.key === clubColKey || field.key === featureColKey) return;
+        const val = row[field.key];
+        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(String(val === '' || val === undefined ? '—' : val)) + '</div></div>';
+        return;
+      }
+
+      // field.type === 'group' : Quilles / Parties / Moyenne réunis dans la même case
+      const q = row[field.quillesKey], p = row[field.partiesKey], m = row[field.moyenneKey];
+      const hasVal = v => v !== undefined && v !== null && String(v).trim() !== '';
+
+      if (!hasVal(q) && !hasVal(p) && !hasVal(m)){
+        html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">—</div></div>';
+      } else {
+        html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div>' +
+          '<div class="mini-stats">' +
+            '<div class="mini-stat"><span class="mk">Quilles</span><span class="mv">' + escapeHtml(hasVal(q) ? String(q) : '—') + '</span></div>' +
+            '<div class="mini-stat"><span class="mk">Parties</span><span class="mv">' + escapeHtml(hasVal(p) ? String(p) : '—') + '</span></div>' +
+            '<div class="mini-stat"><span class="mk">Moyenne</span><span class="mv">' + escapeHtml(hasVal(m) ? String(m) : '—') + '</span></div>' +
+          '</div></div>';
+      }
     });
     html += '</div>';
 
