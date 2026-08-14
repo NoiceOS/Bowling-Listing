@@ -153,6 +153,37 @@
     min-width:220px;
     position:relative;
   }
+  .search-field-narrow{
+    flex:0 1 180px;
+    min-width:160px;
+  }
+  .search-field-btn{
+    flex:0 1 200px;
+    min-width:170px;
+  }
+  .search-field-label-spacer{
+    display:block;
+    font-size:11px;
+    margin-bottom:6px;
+    visibility:hidden;
+  }
+  .reset-filters-btn{
+    width:100%;
+    padding:12px 14px;
+    border-radius:8px;
+    font-family:'Oswald',sans-serif;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    font-size:13px;
+    font-weight:600;
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--muted);
+    cursor:pointer;
+    transition:border-color .12s ease, color .12s ease;
+  }
+  .reset-filters-btn:hover{border-color:var(--amber);color:var(--amber);}
+  .reset-filters-btn:focus-visible{outline:2px solid var(--amber);outline-offset:1px;}
   .search-field label{
     display:block;
     font-family:'Space Mono',monospace;
@@ -162,7 +193,8 @@
     color:var(--muted);
     margin-bottom:6px;
   }
-  .search-field input{
+  .search-field input,
+  .search-field select{
     width:100%;
     background:var(--panel);
     border:1px solid var(--border);
@@ -171,9 +203,12 @@
     border-radius:8px;
     font-size:15px;
     font-family:'Inter',sans-serif;
+    cursor:pointer;
   }
+  .search-field select:disabled{cursor:default;opacity:.6;}
   .search-field input::placeholder{color:var(--muted-dim);}
-  .search-field input:focus-visible{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber);}
+  .search-field input:focus-visible,
+  .search-field select:focus-visible{outline:2px solid var(--amber);outline-offset:1px;border-color:var(--amber);}
 
   .content-grid{
     display:grid;
@@ -319,31 +354,6 @@
     margin-top:2px;
   }
 
-  .feature-stat{
-    display:flex;
-    align-items:baseline;
-    gap:10px;
-    background:var(--panel-alt);
-    border:1px solid var(--border);
-    border-radius:8px;
-    padding:14px 16px;
-    margin-bottom:16px;
-  }
-  .feature-stat .label{
-    font-family:'Space Mono',monospace;
-    font-size:11px;
-    letter-spacing:.08em;
-    text-transform:uppercase;
-    color:var(--muted);
-  }
-  .feature-stat .value{
-    font-family:'Space Mono',monospace;
-    font-weight:700;
-    font-size:28px;
-    color:var(--amber);
-    text-shadow:0 0 18px rgba(245,165,36,0.35);
-  }
-
   .stat-grid{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -368,6 +378,12 @@
     font-size:13.5px;
     font-weight:500;
     word-break:break-word;
+  }
+  .stat-row .v-featured{
+    color:var(--amber);
+    font-weight:700;
+    font-family:'Space Mono',monospace;
+    font-size:15px;
   }
   .stat-row.wide{
     grid-column:1 / -1;
@@ -544,6 +560,19 @@
       <input type="text" id="clubSearch" placeholder="Nom du club…" list="clubList" disabled>
       <datalist id="clubList"></datalist>
     </div>
+    <div class="search-field search-field-narrow">
+      <label for="categorySearch">Niveau</label>
+      <select id="categorySearch" disabled>
+        <option value="">Tous niveaux</option>
+        <option value="Elite">Elite</option>
+        <option value="Excellence">Excellence</option>
+        <option value="Honneur">Honneur</option>
+      </select>
+    </div>
+    <div class="search-field search-field-btn">
+      <span class="search-field-label-spacer" aria-hidden="true">&nbsp;</span>
+      <button type="button" id="resetFiltersBtn" class="reset-filters-btn">Réinitialiser les filtres</button>
+    </div>
   </div>
 
   <div class="content-grid">
@@ -579,12 +608,32 @@
   let selectedIndex = null;
   let compareMode = false;
   let compareIndex = null;
-  let nameColKey = null, clubColKey = null, featureColKey = null;
+  let nameColKey = null, clubColKey = null, featureColKey = null, genreColKey = null;
 
   const EXCLUDED_HEADERS = ['(colonne E)', 'P', 'M', 'Nat', 'T/L'];
-  const COMPARE_EXCLUDED_LABELS = ['N° de Licence', 'num', 'Genre'];
+  const COMPARE_EXCLUDED_LABELS = ['N° de Licence', 'Numéro du club', 'Genre'];
   const SCORE_GROUPS = ['Scores C1 + C2', 'Scores Ligues', 'Scores Cumulés'];
-  const HEADER_RENAMES = { 'LR': 'Région', 'dep': 'Département', 'Hand': 'Handicap', 'S': 'Genre', 'Cat': 'Catégorie' };
+  const HEADER_RENAMES = { 'LR': 'Région', 'dep': 'Département', 'Hand': 'Handicap', 'S': 'Genre', 'Cat': 'Catégorie', 'Moy': 'Moyenne', 'num': 'Numéro du club' };
+  const REGION_DEP_LABEL = 'Région - Département';
+
+  // Seuils de classement Elite / Excellence / Honneur d'après les règlements
+  // fédéraux FFBSQ 2026 (moyennes maximum Honneur/Excellence, distinctes pour
+  // les hommes et les femmes) : au-delà du plafond Excellence, un joueur est Elite.
+  const CATEGORY_THRESHOLDS = {
+    H: { honneurMax: 179, excellenceMax: 194 },
+    F: { honneurMax: 164, excellenceMax: 179 }
+  };
+
+  function computeNiveau(row){
+    if (!genreColKey || !featureColKey) return null;
+    const genre = normalize(row[genreColKey]).charAt(0).toUpperCase();
+    const moy = parseFloat(String(row[featureColKey]).replace(',', '.'));
+    if (!CATEGORY_THRESHOLDS[genre] || isNaN(moy)) return null;
+    const t = CATEGORY_THRESHOLDS[genre];
+    if (moy <= t.honneurMax) return 'Honneur';
+    if (moy <= t.excellenceMax) return 'Excellence';
+    return 'Elite';
+  }
 
   // Dépôt GitHub où sont déposés les fichiers "listing-aaaa-mm-jj*.xlsx",
   // à côté de ce index.html. À adapter avec votre compte / dépôt / dossier.
@@ -602,6 +651,8 @@
   const fileStatus = document.getElementById('fileStatus');
   const nameSearch = document.getElementById('nameSearch');
   const clubSearch = document.getElementById('clubSearch');
+  const categorySearch = document.getElementById('categorySearch');
+  const resetFiltersBtn = document.getElementById('resetFiltersBtn');
   const clubListEl = document.getElementById('clubList');
   const resultsList = document.getElementById('resultsList');
   const resultsCount = document.getElementById('resultsCount');
@@ -756,8 +807,10 @@
       autoDetectColumns();
       nameSearch.disabled = false;
       clubSearch.disabled = false;
+      categorySearch.disabled = false;
       nameSearch.value = '';
       clubSearch.value = '';
+      categorySearch.value = '';
       populateClubList();
       applyFilters();
 
@@ -836,9 +889,22 @@
   function buildDisplayFields(headerList){
     const fields = [];
     const groupEmitted = {};
+    let skipNext = null;
 
     headerList.forEach(h => {
       if (EXCLUDED_HEADERS.includes(h)) return;
+
+      if (skipNext && h === skipNext){
+        skipNext = null;
+        return;
+      }
+      skipNext = null;
+
+      if (h === 'Région'){
+        fields.push({ type: 'pair', label: REGION_DEP_LABEL, keyA: 'Région', keyB: 'Département' });
+        skipNext = 'Département';
+        return;
+      }
 
       const group = SCORE_GROUPS.find(g =>
         h === g + ' - Quilles' || h === g + ' - Parties' || h === g + ' - Moyenne'
@@ -868,10 +934,12 @@
     const nameCandidates = ['nom et prenom', 'nom prenom', 'nom', 'joueur', 'nom complet', 'licencie'];
     const clubCandidates = ['club'];
     const featureCandidates = ['moy', 'moyenne'];
+    const genreCandidates = ['genre', 'sexe'];
 
     nameColKey = findBestHeader(nameCandidates) || headers[0];
     clubColKey = findBestHeader(clubCandidates) || headers[Math.min(1, headers.length - 1)];
     featureColKey = findBestHeader(featureCandidates) || '';
+    genreColKey = findBestHeader(genreCandidates) || null;
   }
 
   function findBestHeader(candidates){
@@ -900,13 +968,15 @@
   function applyFilters(){
     const nq = normalize(nameSearch.value);
     const cq = normalize(clubSearch.value);
+    const catQuery = categorySearch.value;
 
     filtered = rows.filter((r, idx) => {
       const nameVal = normalize(nameColKey ? r[nameColKey] : '');
       const clubVal = normalize(clubColKey ? r[clubColKey] : '');
       const nameMatch = !nq || nameVal.includes(nq);
       const clubMatch = !cq || clubVal.includes(cq);
-      return nameMatch && clubMatch;
+      const catMatch = !catQuery || computeNiveau(r) === catQuery;
+      return nameMatch && clubMatch && catMatch;
     }).map((r, i) => ({ row: r, origIndex: rows.indexOf(r) }));
 
     renderResults();
@@ -1007,16 +1077,25 @@
       '<div class="detail-club">' + escapeHtml(club) + '</div></div>' +
     '</div>';
 
-    if (featureColKey && row[featureColKey] !== undefined && String(row[featureColKey]).trim() !== ''){
-      html += '<div class="feature-stat"><span class="label">' + escapeHtml(featureColKey) + '</span><span class="value">' + escapeHtml(String(row[featureColKey])) + '</span></div>';
-    }
-
     html += '<div class="stat-grid">';
     displayFields.forEach(field => {
+      if (field.type === 'pair'){
+        const va = row[field.keyA], vb = row[field.keyB];
+        const disp = v => (v === '' || v === undefined || v === null) ? '—' : String(v);
+        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(disp(va) + ' - ' + disp(vb)) + '</div></div>';
+        return;
+      }
+
       if (field.type === 'single'){
-        if (field.key === nameColKey || field.key === clubColKey || field.key === featureColKey) return;
+        if (field.key === nameColKey || field.key === clubColKey) return;
         const val = row[field.key];
-        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(String(val === '' || val === undefined ? '—' : val)) + '</div></div>';
+        const isFeature = field.key === featureColKey;
+        let display = val === '' || val === undefined ? '—' : String(val);
+        if (isFeature){
+          const niveau = computeNiveau(row);
+          if (niveau) display += ' · ' + niveau;
+        }
+        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v' + (isFeature ? ' v-featured' : '') + '">' + escapeHtml(display) + '</div></div>';
         return;
       }
 
@@ -1033,6 +1112,7 @@
           '</div></div>';
       }
     });
+
     html += '</div>';
 
     // ----- Zone comparaison (bouton, ou recherche du second joueur) -----
@@ -1109,6 +1189,11 @@
     // Moyenne) pour permettre une comparaison strictement donnée à donnée.
     const compareFields = [];
     displayFields.forEach(field => {
+      if (field.type === 'pair'){
+        compareFields.push({ label: 'Région', key: field.keyA });
+        compareFields.push({ label: 'Département', key: field.keyB });
+        return;
+      }
       if (field.type === 'single'){
         if (field.key === nameColKey || field.key === clubColKey) return;
         if (COMPARE_EXCLUDED_LABELS.includes(field.label)) return;
@@ -1119,6 +1204,7 @@
       compareFields.push({ label: field.label + ' · Parties', key: field.partiesKey });
       compareFields.push({ label: field.label + ' · Moyenne', key: field.moyenneKey, highlight: true });
     });
+    compareFields.push({ label: 'Niveau', key: '__niveau__', highlight: true });
 
     let html = '<div class="compare-players">' +
       '<div class="compare-player"><span class="avatar-lg">' + a.initial + '</span><div><div class="detail-name">' + escapeHtml(a.name) + '</div><div class="detail-club">' + escapeHtml(a.club) + '</div></div></div>' +
@@ -1130,7 +1216,8 @@
 
     html += '<div class="compare-table-scroll"><table class="compare-table"><tbody>';
     compareFields.forEach(field => {
-      const va = rowA[field.key], vb = rowB[field.key];
+      const va = field.key === '__niveau__' ? computeNiveau(rowA) : rowA[field.key];
+      const vb = field.key === '__niveau__' ? computeNiveau(rowB) : rowB[field.key];
       html += '<tr' + (field.highlight ? ' class="compare-highlight"' : '') + '>' +
         '<td class="ck">' + escapeHtml(field.label) + '</td>' +
         '<td class="cv">' + escapeHtml(disp(va)) + '</td>' +
@@ -1169,6 +1256,13 @@
 
   nameSearch.addEventListener('input', applyFilters);
   clubSearch.addEventListener('input', applyFilters);
+  categorySearch.addEventListener('change', applyFilters);
+  resetFiltersBtn.addEventListener('click', () => {
+    nameSearch.value = '';
+    clubSearch.value = '';
+    categorySearch.value = '';
+    applyFilters();
+  });
 })();
 </script>
 
