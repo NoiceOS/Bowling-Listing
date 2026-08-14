@@ -589,8 +589,8 @@
   // Dépôt GitHub où sont déposés les fichiers "listing-aaaa-mm-jj*.xlsx",
   // à côté de ce index.html. À adapter avec votre compte / dépôt / dossier.
   const GITHUB_REPO = {
-    owner: 'NoiceOS',   // <-- à remplacer
-    name: 'Bowling-Listing',            // <-- à remplacer
+    owner: 'NoiceOS',
+    name: 'Bowling-Listing',
     path: ''                        // dossier contenant les listings (laisser vide si à la racine)
   };
 
@@ -1105,12 +1105,19 @@
     const a = playerHeader(rowA);
     const b = playerHeader(rowB);
 
-    const compareFields = displayFields.filter(field => {
+    // Éclate les groupes "Scores ..." en une ligne par donnée (Quilles / Parties /
+    // Moyenne) pour permettre une comparaison strictement donnée à donnée.
+    const compareFields = [];
+    displayFields.forEach(field => {
       if (field.type === 'single'){
-        if (field.key === nameColKey || field.key === clubColKey) return false;
-        if (COMPARE_EXCLUDED_LABELS.includes(field.label)) return false;
+        if (field.key === nameColKey || field.key === clubColKey) return;
+        if (COMPARE_EXCLUDED_LABELS.includes(field.label)) return;
+        compareFields.push({ label: field.label, key: field.key, highlight: field.key === featureColKey });
+        return;
       }
-      return true;
+      compareFields.push({ label: field.label + ' · Quilles', key: field.quillesKey });
+      compareFields.push({ label: field.label + ' · Parties', key: field.partiesKey });
+      compareFields.push({ label: field.label + ' · Moyenne', key: field.moyenneKey, highlight: true });
     });
 
     let html = '<div class="compare-players">' +
@@ -1119,29 +1126,15 @@
       '<div class="compare-player"><span class="avatar-lg">' + b.initial + '</span><div><div class="detail-name">' + escapeHtml(b.name) + '</div><div class="detail-club">' + escapeHtml(b.club) + '</div></div></div>' +
     '</div>';
 
+    const disp = v => (v === '' || v === undefined || v === null) ? '—' : String(v);
+
     html += '<div class="compare-table-scroll"><table class="compare-table"><tbody>';
     compareFields.forEach(field => {
-      const isFeature = field.type === 'single' && field.key === featureColKey;
-
-      if (field.type === 'single'){
-        const va = rowA[field.key], vb = rowB[field.key];
-        const disp = v => (v === '' || v === undefined || v === null) ? '—' : String(v);
-        html += '<tr' + (isFeature ? ' class="compare-highlight"' : '') + '>' +
-          '<td class="ck">' + escapeHtml(field.label) + '</td>' +
-          '<td class="cv">' + escapeHtml(disp(va)) + '</td>' +
-          '<td class="cv">' + escapeHtml(disp(vb)) + '</td>' +
-        '</tr>';
-        return;
-      }
-
-      const gA = groupValues(rowA, field), gB = groupValues(rowB, field);
-      const fmt = g => g.has
-        ? 'Quilles ' + (g.q !== null ? g.q : '—') + ' · Parties ' + (g.p !== null ? g.p : '—') + ' · Moyenne ' + (g.m !== null ? g.m : '—')
-        : '—';
-      html += '<tr>' +
+      const va = rowA[field.key], vb = rowB[field.key];
+      html += '<tr' + (field.highlight ? ' class="compare-highlight"' : '') + '>' +
         '<td class="ck">' + escapeHtml(field.label) + '</td>' +
-        '<td class="cv">' + escapeHtml(fmt(gA)) + '</td>' +
-        '<td class="cv">' + escapeHtml(fmt(gB)) + '</td>' +
+        '<td class="cv">' + escapeHtml(disp(va)) + '</td>' +
+        '<td class="cv">' + escapeHtml(disp(vb)) + '</td>' +
       '</tr>';
     });
     html += '</tbody></table></div>';
