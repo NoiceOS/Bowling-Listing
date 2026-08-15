@@ -388,6 +388,13 @@
   .stat-row.wide{
     grid-column:1 / -1;
   }
+  .stat-row-pair{
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  @media (max-width:420px){.stat-row-pair{grid-template-columns:1fr;}}
   .mini-stats{
     display:flex;
     gap:16px;
@@ -1129,6 +1136,9 @@
       '<div class="detail-club">' + escapeHtml(club) + '</div></div>' +
     '</div>';
 
+    const catField = displayFields.find(f => f.type === 'single' && f.label === 'Catégorie');
+    const handField = displayFields.find(f => f.type === 'single' && f.label === 'Handicap');
+
     html += '<div class="stat-grid">';
     displayFields.forEach(field => {
       if (field.type === 'pair'){
@@ -1140,20 +1150,31 @@
 
       if (field.type === 'single'){
         if (field.key === nameColKey || field.key === clubColKey) return;
+        // Handicap est rendu à côté de Catégorie (voir bloc "Catégorie" ci-dessous).
+        if (field.label === 'Handicap' && catField) return;
+
         const val = row[field.key];
         const isFeature = field.key === featureColKey;
         let display = val === '' || val === undefined ? '—' : String(val);
+
         if (field.label === 'Catégorie'){
-          display = decodeCategory(val) || display;
+          const catVal = decodeCategory(val) || display;
+          const handVal = handField
+            ? (row[handField.key] === '' || row[handField.key] === undefined ? '—' : String(row[handField.key]))
+            : '—';
+          html += '<div class="stat-row-pair">' +
+            '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(catVal) + '</div></div>' +
+            '<div class="stat-row"><div class="k">Handicap</div><div class="v">' + escapeHtml(handVal) + '</div></div>' +
+          '</div>';
+          return;
         }
 
         if (isFeature){
-          const niveau = computeNiveau(row);
-          html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div>' +
-            '<div class="mini-stats">' +
-              '<div class="mini-stat"><span class="mk">Moyenne</span><span class="mv">' + escapeHtml(display) + '</span></div>' +
-              '<div class="mini-stat"><span class="mk">Niveau</span><span class="mv">' + escapeHtml(niveau || '—') + '</span></div>' +
-            '</div></div>';
+          const niveau = computeNiveau(row) || '—';
+          html += '<div class="stat-row-pair">' +
+            '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v v-featured">' + escapeHtml(display) + '</div></div>' +
+            '<div class="stat-row"><div class="k">Niveau</div><div class="v v-featured">' + escapeHtml(niveau) + '</div></div>' +
+          '</div>';
           return;
         }
 
