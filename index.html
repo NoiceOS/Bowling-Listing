@@ -635,6 +635,47 @@
     F: { honneurMax: 164, excellenceMax: 179 }
   };
 
+  // Correspondance code -> nom complet, d'après reference_regions_categories.xlsx
+  // (colonne "LR" du listing = code région, colonne "Cat" = code catégorie d'âge).
+  const REGION_MAP = {
+    ARA: 'Auvergne-Rhône-Alpes',
+    BFC: 'Bourgogne-Franche-Comté',
+    BRE: 'Bretagne',
+    CVL: 'Centre-Val de Loire',
+    GRE: 'Grand Est',
+    GUA: 'Guadeloupe',
+    HDF: 'Hauts-de-France',
+    IDF: 'Île-de-France',
+    NAN: 'Nouvelle-Aquitaine Nord',
+    NAS: 'Nouvelle-Aquitaine Sud',
+    NOR: 'Normandie',
+    OCC: 'Occitanie',
+    PAC: 'Provence-Alpes-Côte d\'Azur',
+    PDL: 'Pays de la Loire'
+  };
+  const CATEGORY_MAP = {
+    BJ: 'Benjamin (-11 ans)',
+    CA: 'Cadet (-17 ans)',
+    JU: 'Junior (-21 ans)',
+    MI: 'Minime (-14 ans)',
+    PO: 'Poussin (-8 ans)',
+    SA: 'Sénior+A',
+    SB: 'Sénior+B',
+    SC: 'Sénior+C',
+    SE: 'Sénior'
+  };
+
+  function decodeRegion(code){
+    const key = String(code || '').trim().toUpperCase();
+    if (!key) return '';
+    return REGION_MAP[key] || String(code);
+  }
+  function decodeCategory(code){
+    const key = String(code || '').trim().toUpperCase();
+    if (!key) return '';
+    return CATEGORY_MAP[key] || String(code);
+  }
+
   function computeNiveau(row){
     if (!genreColKey || !featureColKey) return null;
     const genre = normalize(row[genreColKey]).charAt(0).toUpperCase();
@@ -1093,7 +1134,7 @@
       if (field.type === 'pair'){
         const va = row[field.keyA], vb = row[field.keyB];
         const disp = v => (v === '' || v === undefined || v === null) ? '—' : String(v);
-        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(disp(va) + ' - ' + disp(vb)) + '</div></div>';
+        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(disp(decodeRegion(va)) + ' - ' + disp(vb)) + '</div></div>';
         return;
       }
 
@@ -1102,11 +1143,21 @@
         const val = row[field.key];
         const isFeature = field.key === featureColKey;
         let display = val === '' || val === undefined ? '—' : String(val);
+        if (field.label === 'Catégorie'){
+          display = decodeCategory(val) || display;
+        }
+
         if (isFeature){
           const niveau = computeNiveau(row);
-          if (niveau) display += ' · ' + niveau;
+          html += '<div class="stat-row wide"><div class="k">' + escapeHtml(field.label) + '</div>' +
+            '<div class="mini-stats">' +
+              '<div class="mini-stat"><span class="mk">Moyenne</span><span class="mv">' + escapeHtml(display) + '</span></div>' +
+              '<div class="mini-stat"><span class="mk">Niveau</span><span class="mv">' + escapeHtml(niveau || '—') + '</span></div>' +
+            '</div></div>';
+          return;
         }
-        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v' + (isFeature ? ' v-featured' : '') + '">' + escapeHtml(display) + '</div></div>';
+
+        html += '<div class="stat-row"><div class="k">' + escapeHtml(field.label) + '</div><div class="v">' + escapeHtml(display) + '</div></div>';
         return;
       }
 
@@ -1201,14 +1252,19 @@
     const compareFields = [];
     displayFields.forEach(field => {
       if (field.type === 'pair'){
-        compareFields.push({ label: 'Région', key: field.keyA });
+        compareFields.push({ label: 'Région', key: field.keyA, decode: decodeRegion });
         compareFields.push({ label: 'Département', key: field.keyB });
         return;
       }
       if (field.type === 'single'){
         if (field.key === nameColKey || field.key === clubColKey) return;
         if (COMPARE_EXCLUDED_LABELS.includes(field.label)) return;
-        compareFields.push({ label: field.label, key: field.key, highlight: field.key === featureColKey });
+        compareFields.push({
+          label: field.label,
+          key: field.key,
+          highlight: field.key === featureColKey,
+          decode: field.label === 'Catégorie' ? decodeCategory : null
+        });
         return;
       }
       compareFields.push({ label: field.label + ' · Quilles', key: field.quillesKey });
@@ -1227,8 +1283,12 @@
 
     html += '<div class="compare-table-scroll"><table class="compare-table"><tbody>';
     compareFields.forEach(field => {
-      const va = field.key === '__niveau__' ? computeNiveau(rowA) : rowA[field.key];
-      const vb = field.key === '__niveau__' ? computeNiveau(rowB) : rowB[field.key];
+      let va = field.key === '__niveau__' ? computeNiveau(rowA) : rowA[field.key];
+      let vb = field.key === '__niveau__' ? computeNiveau(rowB) : rowB[field.key];
+      if (field.decode){
+        if (va !== undefined && va !== null && va !== '') va = field.decode(va);
+        if (vb !== undefined && vb !== null && vb !== '') vb = field.decode(vb);
+      }
       html += '<tr' + (field.highlight ? ' class="compare-highlight"' : '') + '>' +
         '<td class="ck">' + escapeHtml(field.label) + '</td>' +
         '<td class="cv">' + escapeHtml(disp(va)) + '</td>' +
