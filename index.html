@@ -95,6 +95,10 @@
     cursor:pointer;
     box-shadow:0 2px 0 var(--amber-dim), 0 8px 20px -8px rgba(245,165,36,0.6);
     transition:transform .12s ease, box-shadow .12s ease, background .12s ease;
+    text-decoration:none;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
   }
   .import-btn:hover{transform:translateY(-1px);}
   .import-btn:active{transform:translateY(1px);box-shadow:0 1px 0 var(--amber-dim);}
@@ -554,6 +558,7 @@
       <h1>Listing Joueurs</h1>
     </div>
     <div class="import-actions">
+      <a class="import-btn secondary" href="calendrier.html">📅 Calendrier fédéral</a>
       <button class="import-btn" id="importBtn" type="button">Importer un listing (xlsx)</button>
       <select class="repo-select" id="listingSelect" disabled>
         <option value="">Recherche des listings…</option>
