@@ -1,0 +1,8 @@
+{
+  "_comment": "Chemins (relatifs à la racine du dépôt GitHub) vers les fichiers de données à jour. Lu directement via raw.githubusercontent.com par declarer-tournoi.html au lieu de lister les dossiers via l'API GitHub (limitée à 60 requêtes/heure par IP non authentifiée). À mettre à jour à la main à chaque nouvel upload : change juste la valeur concernée, pas besoin de toucher au code des pages tant que le format ne change pas.",
+  "calendrier_xlsx": "2026-2027_Calendrier-Fédéral-17-07-2026.xls",
+  "listing_xlsx": "listings/listing-2026-08-17_68043476.xlsx",
+  "listing_min_json": "listings/listing-2026-08-17_68043476.min.json",
+  "club_domiciliation_xlsx": "data/Club_domiciliation.xlsx",
+  "bowlings_ffbsq_xlsx": "data/liste_bowling_ffbsq.xlsx"
+}
